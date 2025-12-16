@@ -3,12 +3,10 @@
 // =========================
 const API_BASE = "https://tasks-api-production-17eb.up.railway.app";
 
-// Your routes:
 const endpoints = {
   list: () => `${API_BASE}/tasks`,
   create: () => `${API_BASE}/tasks`,
-  // If later you add persistence for toggling, use:
-  // patch: (id) => `${API_BASE}/tasks/${encodeURIComponent(id)}`
+  update: (id) => `${API_BASE}/tasks/${encodeURIComponent(id)}`
 };
 
 // =========================
@@ -34,26 +32,24 @@ let tasks = [];
 function setStatus(msg){ statusEl.textContent = msg || ""; }
 
 function escapeHtml(str){
-  return String(str).replace(/[&<>"']/g, (c) => ({
+  return String(str).replace(/[&<>"']/g, c => ({
     "&":"&amp;", "<":"&lt;", ">":"&gt;", '"':"&quot;", "'":"&#039;"
   }[c]));
 }
 
 async function apiFetch(url, options = {}){
   const res = await fetch(url, {
-    headers: { "Content-Type": "application/json", ...(options.headers || {}) },
+    headers: { "Content-Type": "application/json" },
     ...options
   });
 
   if(!res.ok){
-    let detail = "";
-    try { detail = await res.text(); } catch {}
-    throw new Error(`HTTP ${res.status} ${res.statusText}${detail ? " - " + detail : ""}`);
+    const txt = await res.text();
+    throw new Error(txt || res.statusText);
   }
 
   const ct = res.headers.get("content-type") || "";
-  if(ct.includes("application/json")) return res.json();
-  return null;
+  return ct.includes("application/json") ? res.json() : null;
 }
 
 function openModal(){
@@ -70,8 +66,9 @@ function closeModal(){
 
 function checkIconSVG(){
   return `
-    <svg viewBox="0 0 24 24" aria-hidden="true">
-      <path fill="#fff" d="M9.2 16.6 4.9 12.3l-1.4 1.4 5.7 5.7L20.5 8.1l-1.4-1.4z"/>
+    <svg viewBox="0 0 24 24">
+      <path fill="#fff"
+        d="M9.2 16.6 4.9 12.3l-1.4 1.4 5.7 5.7L20.5 8.1l-1.4-1.4z"/>
     </svg>
   `;
 }
@@ -93,10 +90,6 @@ function render(){
   }
 
   for(const t of tasks){
-    // Expecting API to return at least: { id, title, completed }
-    // If your API returns "task" instead of "title", we handle it:
-    const title = t.title ?? t.task ?? t.name ?? "Untitled";
-
     const row = document.createElement("div");
     row.className = "row" + (t.completed ? " done" : "");
 
@@ -107,13 +100,9 @@ function render(){
     const pill = document.createElement("button");
     pill.type = "button";
     pill.className = "taskPill";
-    pill.innerHTML = escapeHtml(title);
+    pill.innerHTML = escapeHtml(t.name);
 
-    // Toggle in UI (non-persistent until you have PATCH route)
-    pill.onclick = () => {
-      tasks = tasks.map(x => x === t ? { ...x, completed: !x.completed } : x);
-      render();
-    };
+    pill.onclick = () => toggleTask(t);
 
     row.appendChild(badge);
     row.appendChild(pill);
@@ -129,22 +118,61 @@ async function loadTasks(){
   render();
 }
 
-async function createTask(title){
-  // Most common: { title }.
-  // If your backend expects { task } instead, change it here.
-  const body = JSON.stringify({ title });
+async function createTask(name){
+  const body = JSON.stringify({
+    name,
+    completed: false
+  });
 
-  const created = await apiFetch(endpoints.create(), { method:"POST", body });
+  const created = await apiFetch(endpoints.create(), {
+    method: "POST",
+    body
+  });
 
-  // If API returns created task:
-  if(created && typeof created === "object"){
-    tasks.unshift(created);
-  } else {
-    // If API returns nothing, reload.
-    await loadTasks();
-  }
-
+  tasks.unshift(created);
   render();
+}
+
+async function updateTask(task){
+  const body = JSON.stringify({
+    name: task.name,
+    completed: task.completed
+  });
+
+  return apiFetch(endpoints.update(task.id), {
+    method: "PUT",
+    body
+  });
+}
+
+async function toggleTask(task){
+  const nextCompleted = !task.completed;
+
+  // Optimistic UI
+  tasks = tasks.map(t =>
+    t.id === task.id ? { ...t, completed: nextCompleted } : t
+  );
+  render();
+
+  try{
+    const updated = await updateTask({
+      ...task,
+      completed: nextCompleted
+    });
+
+    // Sync with DB response
+    tasks = tasks.map(t =>
+      t.id === updated.id ? updated : t
+    );
+    render();
+  }catch(err){
+    // rollback
+    tasks = tasks.map(t =>
+      t.id === task.id ? { ...t, completed: !nextCompleted } : t
+    );
+    render();
+    console.error("Update failed:", err.message);
+  }
 }
 
 // =========================
@@ -153,20 +181,22 @@ async function createTask(title){
 fab.addEventListener("click", openModal);
 closeModalBtn.addEventListener("click", closeModal);
 
-modal.addEventListener("click", (e) => { if(e.target === modal) closeModal(); });
+modal.addEventListener("click", e => {
+  if(e.target === modal) closeModal();
+});
 
-window.addEventListener("keydown", (e) => {
+window.addEventListener("keydown", e => {
   if(e.key === "Escape" && !modal.classList.contains("hidden")) closeModal();
 });
 
-addForm.addEventListener("submit", async (e) => {
+addForm.addEventListener("submit", async e => {
   e.preventDefault();
-  const title = taskInput.value.trim();
-  if(!title) return;
+  const name = taskInput.value.trim();
+  if(!name) return;
 
-  setStatus("Saving…");
+  setStatus("Saving...");
   try{
-    await createTask(title);
+    await createTask(name);
     closeModal();
   }catch(err){
     setStatus("Error: " + err.message);
@@ -176,6 +206,4 @@ addForm.addEventListener("submit", async (e) => {
 // =========================
 // INIT
 // =========================
-loadTasks().catch(err => {
-  console.error(err);
-});
+loadTasks().catch(err => console.error(err));
