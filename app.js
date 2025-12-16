@@ -1,66 +1,42 @@
 // =========================
 // CONFIG
 // =========================
-const API_BASE = "http://localhost:3000";
+const API_BASE = "https://tasks-api-production-17eb.up.railway.app";
 
+// Your routes:
 const endpoints = {
-  today: (date) => `${API_BASE}/tasks/today?date=${encodeURIComponent(date)}`,
+  list: () => `${API_BASE}/tasks`,
   create: () => `${API_BASE}/tasks`,
-  patch: (id) => `${API_BASE}/tasks/${encodeURIComponent(id)}`
+  // If later you add persistence for toggling, use:
+  // patch: (id) => `${API_BASE}/tasks/${encodeURIComponent(id)}`
 };
+
+// =========================
+// DOM
+// =========================
+const listEl = document.getElementById("list");
+const fab = document.getElementById("fab");
+
+const modal = document.getElementById("modal");
+const closeModalBtn = document.getElementById("closeModal");
+const addForm = document.getElementById("addForm");
+const taskInput = document.getElementById("taskInput");
+const statusEl = document.getElementById("status");
 
 // =========================
 // STATE
 // =========================
 let tasks = [];
-let filter = "all"; // all | open | done
-
-// =========================
-// DOM
-// =========================
-const list = document.getElementById("list");
-const statusText = document.getElementById("statusText");
-const dateText = document.getElementById("dateText");
-
-const createForm = document.getElementById("createForm");
-const titleInput = document.getElementById("titleInput");
-const refreshBtn = document.getElementById("refreshBtn");
-
-const showAllBtn = document.getElementById("showAllBtn");
-const showOpenBtn = document.getElementById("showOpenBtn");
-const showDoneBtn = document.getElementById("showDoneBtn");
 
 // =========================
 // HELPERS
 // =========================
-function setStatus(msg){ statusText.textContent = msg; }
-
-function todayISO(){
-  const d = new Date();
-  const y = d.getFullYear();
-  const m = String(d.getMonth()+1).padStart(2,"0");
-  const day = String(d.getDate()).padStart(2,"0");
-  return `${y}-${m}-${day}`;
-}
+function setStatus(msg){ statusEl.textContent = msg || ""; }
 
 function escapeHtml(str){
-  return str.replace(/[&<>"']/g, (c) => ({
+  return String(str).replace(/[&<>"']/g, (c) => ({
     "&":"&amp;", "<":"&lt;", ">":"&gt;", '"':"&quot;", "'":"&#039;"
   }[c]));
-}
-
-function setFilter(next){
-  filter = next;
-  showAllBtn.classList.toggle("active", filter === "all");
-  showOpenBtn.classList.toggle("active", filter === "open");
-  showDoneBtn.classList.toggle("active", filter === "done");
-  render();
-}
-
-function filteredTasks(){
-  if(filter === "open") return tasks.filter(t => !t.completed);
-  if(filter === "done") return tasks.filter(t => t.completed);
-  return tasks;
 }
 
 async function apiFetch(url, options = {}){
@@ -80,105 +56,126 @@ async function apiFetch(url, options = {}){
   return null;
 }
 
-// =========================
-// API
-// =========================
-async function loadToday(){
-  const date = todayISO();
-  dateText.textContent = date;
-
-  setStatus("Loading…");
-  tasks = await apiFetch(endpoints.today(date));
-  setStatus(tasks.length ? `Loaded ${tasks.length}` : "No tasks yet.");
-  render();
+function openModal(){
+  modal.classList.remove("hidden");
+  setStatus("");
+  taskInput.value = "";
+  setTimeout(() => taskInput.focus(), 0);
 }
 
-async function createTask(title){
-  const date = todayISO();
-  const body = JSON.stringify({ title, date });
-  const created = await apiFetch(endpoints.create(), { method:"POST", body });
-  tasks.unshift(created);
-  setStatus("Added.");
-  render();
+function closeModal(){
+  modal.classList.add("hidden");
+  setStatus("");
 }
 
-async function toggleTask(task){
-  // Optimistic UI (se siente más app)
-  const nextCompleted = !task.completed;
-  tasks = tasks.map(t => t.id === task.id ? { ...t, completed: nextCompleted } : t);
-  render();
-
-  try{
-    const body = JSON.stringify({ completed: nextCompleted });
-    const updated = await apiFetch(endpoints.patch(task.id), { method:"PATCH", body });
-    tasks = tasks.map(t => t.id === updated.id ? updated : t);
-    setStatus(updated.completed ? "Done." : "Undone.");
-    render();
-  }catch(err){
-    // rollback
-    tasks = tasks.map(t => t.id === task.id ? { ...t, completed: !nextCompleted } : t);
-    render();
-    setStatus("Error: " + err.message);
-  }
+function checkIconSVG(){
+  return `
+    <svg viewBox="0 0 24 24" aria-hidden="true">
+      <path fill="#fff" d="M9.2 16.6 4.9 12.3l-1.4 1.4 5.7 5.7L20.5 8.1l-1.4-1.4z"/>
+    </svg>
+  `;
 }
 
 // =========================
 // RENDER
 // =========================
 function render(){
-  const items = filteredTasks();
-  list.innerHTML = "";
+  listEl.innerHTML = "";
 
-  if(items.length === 0){
-    const empty = document.createElement("div");
-    empty.className = "empty";
-    empty.textContent = "Nothing here. Add a task above.";
-    list.appendChild(empty);
+  if(!tasks.length){
+    const hint = document.createElement("div");
+    hint.style.opacity = ".55";
+    hint.style.color = "#fff";
+    hint.style.fontSize = "14px";
+    hint.textContent = "No tasks. Tap + to add one.";
+    listEl.appendChild(hint);
     return;
   }
 
-  for(const t of items){
-    const btn = document.createElement("button");
-    btn.type = "button";
-    btn.className = "taskbtn" + (t.completed ? " done" : "");
-    btn.title = "Tap to toggle";
+  for(const t of tasks){
+    // Expecting API to return at least: { id, title, completed }
+    // If your API returns "task" instead of "title", we handle it:
+    const title = t.title ?? t.task ?? t.name ?? "Untitled";
 
-    const text = document.createElement("div");
-    text.className = "tasktext";
-    text.innerHTML = escapeHtml(t.title);
+    const row = document.createElement("div");
+    row.className = "row" + (t.completed ? " done" : "");
 
     const badge = document.createElement("div");
-    badge.className = "badge";
-    badge.textContent = t.completed ? "✓" : "•";
+    badge.className = "checkBadge";
+    badge.innerHTML = checkIconSVG();
 
-    btn.appendChild(text);
-    btn.appendChild(badge);
+    const pill = document.createElement("button");
+    pill.type = "button";
+    pill.className = "taskPill";
+    pill.innerHTML = escapeHtml(title);
 
-    btn.onclick = () => toggleTask(t);
-    list.appendChild(btn);
+    // Toggle in UI (non-persistent until you have PATCH route)
+    pill.onclick = () => {
+      tasks = tasks.map(x => x === t ? { ...x, completed: !x.completed } : x);
+      render();
+    };
+
+    row.appendChild(badge);
+    row.appendChild(pill);
+    listEl.appendChild(row);
   }
+}
+
+// =========================
+// API ACTIONS
+// =========================
+async function loadTasks(){
+  tasks = await apiFetch(endpoints.list());
+  render();
+}
+
+async function createTask(title){
+  // Most common: { title }.
+  // If your backend expects { task } instead, change it here.
+  const body = JSON.stringify({ title });
+
+  const created = await apiFetch(endpoints.create(), { method:"POST", body });
+
+  // If API returns created task:
+  if(created && typeof created === "object"){
+    tasks.unshift(created);
+  } else {
+    // If API returns nothing, reload.
+    await loadTasks();
+  }
+
+  render();
 }
 
 // =========================
 // EVENTS
 // =========================
-createForm.addEventListener("submit", (e) => {
+fab.addEventListener("click", openModal);
+closeModalBtn.addEventListener("click", closeModal);
+
+modal.addEventListener("click", (e) => { if(e.target === modal) closeModal(); });
+
+window.addEventListener("keydown", (e) => {
+  if(e.key === "Escape" && !modal.classList.contains("hidden")) closeModal();
+});
+
+addForm.addEventListener("submit", async (e) => {
   e.preventDefault();
-  const title = titleInput.value.trim();
+  const title = taskInput.value.trim();
   if(!title) return;
-  titleInput.value = "";
-  createTask(title).catch(err => setStatus("Error: " + err.message));
-});
 
-refreshBtn.addEventListener("click", () => {
-  loadToday().catch(err => setStatus("Error: " + err.message));
+  setStatus("Saving…");
+  try{
+    await createTask(title);
+    closeModal();
+  }catch(err){
+    setStatus("Error: " + err.message);
+  }
 });
-
-showAllBtn.addEventListener("click", () => setFilter("all"));
-showOpenBtn.addEventListener("click", () => setFilter("open"));
-showDoneBtn.addEventListener("click", () => setFilter("done"));
 
 // =========================
 // INIT
 // =========================
-loadToday().catch(err => setStatus("Error: " + err.message));
+loadTasks().catch(err => {
+  console.error(err);
+});

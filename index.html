@@ -2,37 +2,31 @@
 <html lang="es">
 <head>
   <meta charset="utf-8" />
-  <meta name="viewport" content="width=device-width,initial-scale=1" />
-  <title>Daily</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Daily Tasks</title>
   <link rel="stylesheet" href="styles.css" />
 </head>
 <body>
-  <main class="phone">
-    <header class="topbar">
-      <div class="topbar-left">
-        <div class="appname">Daily</div>
-        <div id="dateText" class="date"></div>
-      </div>
-      <button id="refreshBtn" class="iconbtn" type="button" aria-label="Refresh">
-        ↻
-      </button>
-    </header>
-
-    <section class="composer">
-      <form id="createForm" class="composer-form">
-        <input id="titleInput" class="composer-input" placeholder="Add a task…" maxlength="80" />
-        <button class="composer-btn" type="submit">Add</button>
-      </form>
-      <div id="statusText" class="status">Ready.</div>
-    </section>
-
+  <main class="screen">
     <section id="list" class="list" aria-live="polite"></section>
 
-    <footer class="bottombar">
-      <button id="showAllBtn" class="tab active" type="button">All</button>
-      <button id="showOpenBtn" class="tab" type="button">Open</button>
-      <button id="showDoneBtn" class="tab" type="button">Done</button>
-    </footer>
+    <button id="fab" class="fab" type="button" aria-label="Add task">
+      <span class="fab-plus">+</span>
+    </button>
+
+    <div id="modal" class="modal hidden" role="dialog" aria-modal="true" aria-labelledby="modalTitle">
+      <div class="modal-card">
+        <div class="modal-title" id="modalTitle">New task</div>
+
+        <form id="addForm" class="modal-form">
+          <input id="taskInput" class="modal-input" placeholder="Task name…" maxlength="80" />
+          <button class="modal-add" type="submit" aria-label="Create task">Add</button>
+        </form>
+
+        <button id="closeModal" class="modal-close" type="button" aria-label="Close">Close</button>
+        <div id="status" class="status"></div>
+      </div>
+    </div>
   </main>
 
   <script src="app.js"></script>
