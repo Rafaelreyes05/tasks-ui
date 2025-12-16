@@ -1,8 +1,7 @@
 // =========================
 // CONFIG
 // =========================
-// Cambia esto al host de tu API (Render/Railway/etc.)
-const API_BASE = "https://tasks-api-production-17eb.up.railway.app:8080";
+const API_BASE = "http://localhost:3000";
 
 const endpoints = {
   today: (date) => `${API_BASE}/tasks/today?date=${encodeURIComponent(date)}`,
@@ -14,19 +13,22 @@ const endpoints = {
 // STATE
 // =========================
 let tasks = [];
+let filter = "all"; // all | open | done
 
 // =========================
 // DOM
 // =========================
-const grid = document.getElementById("grid");
+const list = document.getElementById("list");
 const statusText = document.getElementById("statusText");
 const dateText = document.getElementById("dateText");
 
 const createForm = document.getElementById("createForm");
 const titleInput = document.getElementById("titleInput");
-
 const refreshBtn = document.getElementById("refreshBtn");
-const resetBtn = document.getElementById("resetBtn");
+
+const showAllBtn = document.getElementById("showAllBtn");
+const showOpenBtn = document.getElementById("showOpenBtn");
+const showDoneBtn = document.getElementById("showDoneBtn");
 
 // =========================
 // HELPERS
@@ -34,7 +36,6 @@ const resetBtn = document.getElementById("resetBtn");
 function setStatus(msg){ statusText.textContent = msg; }
 
 function todayISO(){
-  // fecha local -> YYYY-MM-DD
   const d = new Date();
   const y = d.getFullYear();
   const m = String(d.getMonth()+1).padStart(2,"0");
@@ -46,6 +47,20 @@ function escapeHtml(str){
   return str.replace(/[&<>"']/g, (c) => ({
     "&":"&amp;", "<":"&lt;", ">":"&gt;", '"':"&quot;", "'":"&#039;"
   }[c]));
+}
+
+function setFilter(next){
+  filter = next;
+  showAllBtn.classList.toggle("active", filter === "all");
+  showOpenBtn.classList.toggle("active", filter === "open");
+  showDoneBtn.classList.toggle("active", filter === "done");
+  render();
+}
+
+function filteredTasks(){
+  if(filter === "open") return tasks.filter(t => !t.completed);
+  if(filter === "done") return tasks.filter(t => t.completed);
+  return tasks;
 }
 
 async function apiFetch(url, options = {}){
@@ -70,11 +85,11 @@ async function apiFetch(url, options = {}){
 // =========================
 async function loadToday(){
   const date = todayISO();
-  dateText.textContent = `Hoy: ${date}`;
+  dateText.textContent = date;
 
-  setStatus("Cargando tareas de hoy…");
+  setStatus("Loading…");
   tasks = await apiFetch(endpoints.today(date));
-  setStatus(`Tareas de hoy: ${tasks.length}`);
+  setStatus(tasks.length ? `Loaded ${tasks.length}` : "No tasks yet.");
   render();
 }
 
@@ -83,45 +98,64 @@ async function createTask(title){
   const body = JSON.stringify({ title, date });
   const created = await apiFetch(endpoints.create(), { method:"POST", body });
   tasks.unshift(created);
-  setStatus("Tarea creada.");
+  setStatus("Added.");
   render();
 }
 
 async function toggleTask(task){
-  const body = JSON.stringify({ completed: !task.completed });
-  const updated = await apiFetch(endpoints.patch(task.id), { method:"PATCH", body });
-  tasks = tasks.map(t => t.id === updated.id ? updated : t);
-  setStatus(updated.completed ? "Marcada como hecha." : "Marcada como pendiente.");
+  // Optimistic UI (se siente más app)
+  const nextCompleted = !task.completed;
+  tasks = tasks.map(t => t.id === task.id ? { ...t, completed: nextCompleted } : t);
   render();
+
+  try{
+    const body = JSON.stringify({ completed: nextCompleted });
+    const updated = await apiFetch(endpoints.patch(task.id), { method:"PATCH", body });
+    tasks = tasks.map(t => t.id === updated.id ? updated : t);
+    setStatus(updated.completed ? "Done." : "Undone.");
+    render();
+  }catch(err){
+    // rollback
+    tasks = tasks.map(t => t.id === task.id ? { ...t, completed: !nextCompleted } : t);
+    render();
+    setStatus("Error: " + err.message);
+  }
 }
 
 // =========================
 // RENDER
 // =========================
 function render(){
-  grid.innerHTML = "";
+  const items = filteredTasks();
+  list.innerHTML = "";
 
-  if(tasks.length === 0){
+  if(items.length === 0){
     const empty = document.createElement("div");
-    empty.className = "muted";
-    empty.textContent = "No hay tareas para hoy. Agrega una arriba.";
-    grid.appendChild(empty);
+    empty.className = "empty";
+    empty.textContent = "Nothing here. Add a task above.";
+    list.appendChild(empty);
     return;
   }
 
-  for(const t of tasks){
-    const el = document.createElement("div");
-    el.className = "task" + (t.completed ? " done" : "");
-    el.title = "Click para alternar";
+  for(const t of items){
+    const btn = document.createElement("button");
+    btn.type = "button";
+    btn.className = "taskbtn" + (t.completed ? " done" : "");
+    btn.title = "Tap to toggle";
 
-    const label = document.createElement("div");
-    label.className = "label";
-    label.innerHTML = escapeHtml(t.title);
+    const text = document.createElement("div");
+    text.className = "tasktext";
+    text.innerHTML = escapeHtml(t.title);
 
-    el.appendChild(label);
-    el.onclick = () => toggleTask(t).catch(err => setStatus("Error: " + err.message));
+    const badge = document.createElement("div");
+    badge.className = "badge";
+    badge.textContent = t.completed ? "✓" : "•";
 
-    grid.appendChild(el);
+    btn.appendChild(text);
+    btn.appendChild(badge);
+
+    btn.onclick = () => toggleTask(t);
+    list.appendChild(btn);
   }
 }
 
@@ -140,16 +174,11 @@ refreshBtn.addEventListener("click", () => {
   loadToday().catch(err => setStatus("Error: " + err.message));
 });
 
-resetBtn.addEventListener("click", () => {
-  // Esto solo cambia UI; la persistencia debe manejarse en la API si lo quieres real.
-  tasks = tasks.map(t => ({ ...t, completed: false }));
-  setStatus("UI reseteada (no guardado).");
-  render();
-});
+showAllBtn.addEventListener("click", () => setFilter("all"));
+showOpenBtn.addEventListener("click", () => setFilter("open"));
+showDoneBtn.addEventListener("click", () => setFilter("done"));
 
 // =========================
 // INIT
 // =========================
-loadToday().catch(err => {
-  setStatus("No pude cargar tareas. Revisa API_BASE/CORS. " + err.message);
-});
+loadToday().catch(err => setStatus("Error: " + err.message));
